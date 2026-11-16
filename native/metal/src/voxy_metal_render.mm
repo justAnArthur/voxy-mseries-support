@@ -594,3 +594,114 @@ Java_me_cortex_voxy_client_core_metal_MetalNative_mtlRenderEncoderSetFragmentByt
         [encoder setFragmentBytes:(const void *)dataAddr length:(NSUInteger)size atIndex:(NSUInteger)index];
     }
 }
+
+// -------- Batched direct indexed draws (perf) --------
+//
+// Replaces a Java loop of one-JNI-call-per-draw (30k+ per frame on far
+// render distances) with a single call. The draw commands live in a Shared
+// MTLBuffer the CPU can read once the compute prepass that wrote them has
+// completed, so each command is issued as a direct draw (no GPU indirect
+// fetch) and commands with zero indices/instances are skipped entirely.
+// Layout per command matches GL/Metal DrawElementsIndirectCommand:
+//   uint count, instanceCount, firstIndex; int baseVertex; uint baseInstance.
+// When perDrawBinding >= 0 the legacy per-draw baseInstance push is kept
+// (setVertexBytes of 16 bytes at that vertex buffer index).
+extern "C" JNIEXPORT jint JNICALL
+Java_me_cortex_voxy_client_core_metal_MetalNative_mtlRenderEncoderDrawIndexedBatch(
+        JNIEnv *, jclass, jlong encoderHandle, jint primitiveType, jint indexType,
+        jlong indexBufferHandle, jlong indexBufferOffset,
+        jlong cmdsAddr, jint drawCount, jint stride, jint perDrawBinding) {
+    if (encoderHandle == 0 || indexBufferHandle == 0 || cmdsAddr == 0) return 0;
+    id<MTLRenderCommandEncoder> encoder = voxy_handle_cast<id<MTLRenderCommandEncoder>>(encoderHandle);
+    id<MTLBuffer> indexBuffer = voxy_handle_cast<id<MTLBuffer>>(indexBufferHandle);
+    const NSUInteger indexSize = (indexType == (jint)MTLIndexTypeUInt16) ? 2 : 4;
+    const uint8_t *base = reinterpret_cast<const uint8_t *>(cmdsAddr);
+    jint issued = 0;
+    for (jint i = 0; i < drawCount; i++) {
+        const uint32_t *c = reinterpret_cast<const uint32_t *>(base + (size_t)i * (size_t)stride);
+        const uint32_t count = c[0], instances = c[1], firstIndex = c[2];
+        const int32_t baseVertex = (int32_t)c[3];
+        const uint32_t baseInstance = c[4];
+        if (count == 0 || instances == 0) continue;
+        if (perDrawBinding >= 0) {
+            uint32_t ubo[4] = {baseInstance, 0, 0, 0};
+            [encoder setVertexBytes:ubo length:sizeof(ubo) atIndex:(NSUInteger)perDrawBinding];
+        }
+        [encoder drawIndexedPrimitives:(MTLPrimitiveType)primitiveType
+                            indexCount:count
+                             indexType:(MTLIndexType)indexType
+                           indexBuffer:indexBuffer
+                     indexBufferOffset:(NSUInteger)indexBufferOffset + (NSUInteger)firstIndex * indexSize
+                         instanceCount:instances
+                            baseVertex:baseVertex
+                          baseInstance:baseInstance];
+        issued++;
+    }
+    return issued;
+}
+
+// Chunked single-draw path: flattens all indirect commands (CPU-readable after
+// submit-wait) into a table of fixed-size quad chunks {firstQuad, drawId|count<<24}
+// in a Shared buffer, then issues ONE instanced draw (one instance per chunk,
+// chunkQuads*6 indices each). quads3.vert (VOXY_CHUNKED_DRAW) resolves its quad
+// from the table and collapses vertices past the chunk's count. Removes the
+// per-draw CPU encode cost (tens of thousands of draws per frame at long range).
+// Returns entries used, or -(entries needed) without drawing on overflow.
+static uint64_t g_chunkedQuads = 0;
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_me_cortex_voxy_client_core_metal_MetalNative_mtlChunkedQuadsAndReset(JNIEnv *, jclass) {
+    jlong v = (jlong)g_chunkedQuads;
+    g_chunkedQuads = 0;
+    return v;
+}
+
+extern "C" JNIEXPORT jlong JNICALL
+Java_me_cortex_voxy_client_core_metal_MetalNative_mtlRenderEncoderDrawIndexedChunked(
+        JNIEnv *, jclass, jlong encoderHandle, jint primitiveType, jint indexType,
+        jlong indexBufferHandle, jlong indexBufferOffset,
+        jlong cmdsAddr, jint drawCount, jint stride,
+        jlong chunkBufferHandle, jlong chunkContents, jlong chunkByteOffset,
+        jlong capacityEntries, jint chunkQuads, jint bindIndex) {
+    if (encoderHandle == 0 || indexBufferHandle == 0 || cmdsAddr == 0
+            || chunkBufferHandle == 0 || chunkContents == 0 || chunkQuads <= 0) return 0;
+    const uint8_t *base = reinterpret_cast<const uint8_t *>(cmdsAddr);
+    uint32_t *out = reinterpret_cast<uint32_t *>(reinterpret_cast<uint8_t *>(chunkContents) + chunkByteOffset);
+    const uint32_t cq = (uint32_t)chunkQuads;
+    jlong n = 0;
+    for (jint i = 0; i < drawCount; i++) {
+        const uint32_t *c = reinterpret_cast<const uint32_t *>(base + (size_t)i * (size_t)stride);
+        const uint32_t count = c[0], instances = c[1], firstIndex = c[2];
+        const int32_t baseVertex = (int32_t)c[3];
+        const uint32_t drawId = c[4];
+        if (count == 0 || instances == 0) continue;
+        uint32_t quads = count / 6u;
+        g_chunkedQuads += quads;
+        uint32_t q = (uint32_t)(baseVertex >> 2) + firstIndex / 6u;
+        while (quads != 0) {
+            uint32_t take = quads < cq ? quads : cq;
+            if (n < capacityEntries) {
+                out[n * 2] = q;
+                out[n * 2 + 1] = (drawId & 0xFFFFFFu) | (take << 24);
+            }
+            n++;
+            q += take;
+            quads -= take;
+        }
+    }
+    if (n > capacityEntries) return -n;
+    if (n == 0) return 0;
+    id<MTLRenderCommandEncoder> encoder = voxy_handle_cast<id<MTLRenderCommandEncoder>>(encoderHandle);
+    id<MTLBuffer> indexBuffer = voxy_handle_cast<id<MTLBuffer>>(indexBufferHandle);
+    id<MTLBuffer> chunkBuffer = voxy_handle_cast<id<MTLBuffer>>(chunkBufferHandle);
+    [encoder setVertexBuffer:chunkBuffer offset:(NSUInteger)chunkByteOffset atIndex:(NSUInteger)bindIndex];
+    [encoder drawIndexedPrimitives:(MTLPrimitiveType)primitiveType
+                        indexCount:(NSUInteger)cq * 6u
+                         indexType:(MTLIndexType)indexType
+                       indexBuffer:indexBuffer
+                 indexBufferOffset:(NSUInteger)indexBufferOffset
+                     instanceCount:(NSUInteger)n
+                        baseVertex:0
+                      baseInstance:0];
+    return n;
+}

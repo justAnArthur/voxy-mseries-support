@@ -83,6 +83,12 @@ public class LightMapHelper {
     }
 
     private static void ensureMetalResources() {
+        // The mirror is process-static; if anything released its handle (e.g. a
+        // backend teardown), rebuild instead of binding a dead id.
+        if (metalLightmap != null && !me.cortex.voxy.client.core.metal.MetalHandleMap.isRegistered(metalLightmap.id())) {
+            metalLightmap = null;
+            lastSyncedFrame = -1;
+        }
         if (metalLightmap == null) {
             RenderBackend backend = RenderBackendFactory.get();
             if (backend.getType() != BackendType.METAL) {

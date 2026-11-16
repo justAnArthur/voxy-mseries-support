@@ -177,12 +177,15 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
      *  (caps injected as INT_MAX) so the pre-fix overflow can be A/B-reproduced
      *  on-device. Default: clamps ON. */
     private static boolean cmdgenNoClamp() {
-        return "1".equals(System.getenv("VOXY_CMDGEN_NOCLAMP"));
+        return "1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_CMDGEN_NOCLAMP"));
     }
 
     private static java.util.Map<String, String> cmdgenDefines() {
         var m = new java.util.LinkedHashMap<String, String>();
         m.put("TRANSLUCENT_WRITE_BASE", "1024");
+        // Max culled-face quads a merged opaque draw may bridge (0 = exact merge only).
+        String gap = me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_CMD_MERGE_GAP");
+        m.put("CMD_MERGE_GAP", gap != null ? Integer.toString(Math.max(0, Integer.parseInt(gap.trim()))) : "32");
         m.put("TEMPORAL_OFFSET", Integer.toString(TEMPORAL_OFFSET));
         m.put("TRANSLUCENT_DISTANCE_BUFFER_BINDING", "7");
         // Capacities of the opaque and temporal draw-command regions, mirroring
@@ -232,7 +235,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
     // loaded-chunk square exactly (48 only papered over the slant mismatch);
     // VOXY_TRANS_NEAR_CULL_MARGIN overrides in blocks.
     private static final boolean TRANS_NEAR_CULL_XZ =
-            !"0".equals(System.getenv("VOXY_TRANS_NEAR_CULL_XZ"));
+            !"0".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_TRANS_NEAR_CULL_XZ"));
     // 2026-07-03 round 5: Sodium renders sections in a Euclidean XZ CYLINDER
     // (OcclusionCuller fx*fx+fz*fz <= r*r), so the Chebyshev SQUARE cull left
     // a ring toward the render square's diagonals (Euclid RD..RD*sqrt(2))
@@ -242,7 +245,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
     // already have (handled by the chunk-bound mask).
     // VOXY_TRANS_NEAR_CULL_RADIAL=0 falls back to the Chebyshev square.
     private static final boolean TRANS_NEAR_CULL_RADIAL =
-            TRANS_NEAR_CULL_XZ && !"0".equals(System.getenv("VOXY_TRANS_NEAR_CULL_RADIAL"));
+            TRANS_NEAR_CULL_XZ && !"0".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_TRANS_NEAR_CULL_RADIAL"));
     private static final float TRANS_NEAR_CULL_MARGIN =
             parseEnvFloat("VOXY_TRANS_NEAR_CULL_MARGIN", TRANS_NEAR_CULL_XZ ? 16f : 48f);
     // 2026-07-15 border-band panes: the masked cull's radius gate stopped at
@@ -260,13 +263,13 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
     // branch at all) — now opt-in via VOXY_TRANS_NEAR_CULL_FULLRING=1, default
     // back to the -margin radius.
     private static final boolean TRANS_NEAR_CULL_MASKED_ON =
-            !"0".equals(System.getenv("VOXY_TRANS_NEAR_CULL_MASKED"));
+            !"0".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_TRANS_NEAR_CULL_MASKED"));
     private static final boolean TRANS_NEAR_CULL_FULLRING = TRANS_NEAR_CULL_MASKED_ON
-            && "1".equals(System.getenv("VOXY_TRANS_NEAR_CULL_FULLRING"));
+            && "1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_TRANS_NEAR_CULL_FULLRING"));
     private static boolean loggedNearCullRuntime;
 
     private static float parseEnvFloat(String name, float def) {
-        String v = System.getenv(name);
+        String v = me.cortex.voxy.client.core.util.VoxyTune.env(name);
         if (v == null || v.isBlank()) return def;
         try {
             return Float.parseFloat(v.trim());
@@ -366,7 +369,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
             String emitter = me.cortex.voxy.client.core.util.MetalVxGbufferEmitter.SOURCE;
             String vxOpaqueFrag = vxOpaqueMat ? frag + emitter : frag;
             String vxTransFrag = vxMaterial ? frag + emitter : frag;
-            boolean gbufferDebug = "1".equals(System.getenv("VOXY_VX_GBUFFER_DEBUG"));
+            boolean gbufferDebug = "1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_VX_GBUFFER_DEBUG"));
             if (vxOpaqueMat) {
                 opaqueDefines.put("PATCHED_SHADER", "");
                 opaqueDefines.put("VOXY_VX_GBUFFER", "");
@@ -386,8 +389,8 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 // skip-the-sample behaviour; VOXY_BOUND_DEBUG=1 tints
                 // bound-discarded fragments red instead of discarding
                 // (mask-verification aid, opaque + translucent).
-                boolean noDepthBound = "1".equals(System.getenv("VOXY_NO_DEPTH_BOUND"));
-                boolean boundDebug = !noDepthBound && "1".equals(System.getenv("VOXY_BOUND_DEBUG"));
+                boolean noDepthBound = "1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_NO_DEPTH_BOUND"));
+                boolean boundDebug = !noDepthBound && "1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_BOUND_DEBUG"));
                 if (noDepthBound) {
                     opaqueDefines.put("VOXY_NO_DEPTH_BOUND", "");
                     translucentDefines.put("VOXY_NO_DEPTH_BOUND", "");
@@ -413,7 +416,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 // translucent-resolve/abyss tint; this classifies whether they are
                 // opaque-layer LOD content in one run. Probe only — no behavior
                 // without the env.
-                if ("1".equals(System.getenv("VOXY_OPAQUE_RING_DEBUG"))) {
+                if ("1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_OPAQUE_RING_DEBUG"))) {
                     opaqueDefines.put("VOXY_OPAQUE_RING_DEBUG", "");
                     Logger.info("[Metal-LODTEST] opaque ring debug ARMED (in-ring opaque-layer"
                             + " LOD fragments tint ORANGE; panes orange = they are opaque-layer"
@@ -429,9 +432,9 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 //   VOXY_LOD_FIXED_MIP=0 opts back into derivative mips.
                 // VOXY_LOD_NO_DISCARD — skip the alpha discard (tests whether the
                 //   discard is punching the flickering transparent holes).
-                String fixedMipEnv = System.getenv("VOXY_LOD_FIXED_MIP");
+                String fixedMipEnv = me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_LOD_FIXED_MIP");
                 boolean lodFixedMip = fixedMipEnv == null || !"0".equals(fixedMipEnv.trim());
-                boolean lodNoDiscard = "1".equals(System.getenv("VOXY_LOD_NO_DISCARD"));
+                boolean lodNoDiscard = "1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_LOD_NO_DISCARD"));
                 if (lodFixedMip) {
                     opaqueDefines.put("VOXY_LOD_FIXED_MIP", "");
                     translucentDefines.put("VOXY_LOD_FIXED_MIP", "");
@@ -459,11 +462,11 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 //   NEAREST never crosses cells).
                 //   VOXY_LOD_DIST_MIP=0 reverts to fixed mip 0.
                 //   VOXY_LOD_MIP_BIAS=<f> biases the level (+0.5 = blurrier).
-                String distMipEnv = System.getenv("VOXY_LOD_DIST_MIP");
+                String distMipEnv = me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_LOD_DIST_MIP");
                 boolean lodDistMip = distMipEnv == null || !"0".equals(distMipEnv.trim());
                 if (lodDistMip) {
                     float mipBias = 0.0f;
-                    String mb = System.getenv("VOXY_LOD_MIP_BIAS");
+                    String mb = me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_LOD_MIP_BIAS");
                     if (mb != null && !mb.isBlank()) {
                         try {
                             mipBias = Float.parseFloat(mb.trim());
@@ -507,7 +510,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 //   blending (pale section-aligned veil squares), an exposed
                 //   gap band at LOD ring transitions, and wrong mid/far water
                 //   heights. VOXY_LOD_ABS_INDENT=0 restores upstream scaling.
-                String absIndentEnv = System.getenv("VOXY_LOD_ABS_INDENT");
+                String absIndentEnv = me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_LOD_ABS_INDENT");
                 boolean absIndent = absIndentEnv == null || !"0".equals(absIndentEnv.trim());
                 if (absIndent) {
                     opaqueDefines.put("VOXY_LOD_ABS_INDENT", "");
@@ -524,7 +527,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 //   Hard-cull translucent LOD fragments inside the MC ring;
                 //   the cull distance rides in voxyLodParams2.x per frame.
                 //   VOXY_TRANS_NEAR_CULL=0 disables.
-                String nearCullEnv = System.getenv("VOXY_TRANS_NEAR_CULL");
+                String nearCullEnv = me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_TRANS_NEAR_CULL");
                 boolean transNearCull = (nearCullEnv == null || !"0".equals(nearCullEnv.trim()))
                         && me.cortex.voxy.client.core.util.IrisUtil.vxContractActive();
                 if (transNearCull) {
@@ -551,7 +554,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                         // the plain discard erased the depth too, so dT==d made the
                         // dim structurally unreachable at exactly those pixels).
                         // VOXY_TRANS_NEAR_CULL_GHOST=0 reverts to the plain discard.
-                        if (!"0".equals(System.getenv("VOXY_TRANS_NEAR_CULL_GHOST"))) {
+                        if (!"0".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_TRANS_NEAR_CULL_GHOST"))) {
                             translucentDefines.put("VOXY_TRANS_NEAR_CULL_GHOST", "");
                             Logger.info("[Metal-LODTEST] trans near-cull GHOST depth ON "
                                     + "(culled LOD water keeps its depth write; floors under "
@@ -580,7 +583,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 //   define; GL source unchanged). VOXY_WLOG_TINT_FIX=0 reverts;
                 //   VOXY_DEBUG_WLOG_TINT=1 paints affected quads magenta for
                 //   one-screenshot adjudication.
-                String wlogFixEnv = System.getenv("VOXY_WLOG_TINT_FIX");
+                String wlogFixEnv = me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_WLOG_TINT_FIX");
                 if (wlogFixEnv == null || !"0".equals(wlogFixEnv.trim())) {
                     opaqueDefines.put("VOXY_WLOG_TINT_FIX", "");
                     translucentDefines.put("VOXY_WLOG_TINT_FIX", "");
@@ -588,7 +591,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                             + "(biome-LUT flag + colour=-1 no longer wraps into another model's "
                             + "tint); VOXY_WLOG_TINT_FIX=0 reverts");
                 }
-                if ("1".equals(System.getenv("VOXY_DEBUG_WLOG_TINT"))) {
+                if ("1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_DEBUG_WLOG_TINT"))) {
                     opaqueDefines.put("VOXY_DEBUG_WLOG_TINT", "");
                     translucentDefines.put("VOXY_DEBUG_WLOG_TINT", "");
                     Logger.info("[Metal-LODTEST] wlog tint DEBUG ON — sentinel-tint quads render "
@@ -606,7 +609,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 boolean vxContract = me.cortex.voxy.client.core.util.IrisUtil.vxContractActive();
                 if (!vxContract) {
                     float brightness = 0.92f;
-                    String b = System.getenv("VOXY_LOD_BRIGHTNESS");
+                    String b = me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_LOD_BRIGHTNESS");
                     if (b != null && !b.isBlank()) {
                         try {
                             brightness = Float.parseFloat(b.trim());
@@ -630,7 +633,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 {
                     float waterShade = 1.0f;
                     float waterMinAlpha = 0.0f;
-                    String ws = System.getenv("VOXY_WATER_SHADE");
+                    String ws = me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_WATER_SHADE");
                     if (ws != null && !ws.isBlank()) {
                         try {
                             waterShade = Float.parseFloat(ws.trim());
@@ -638,7 +641,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                             waterShade = 1.0f;
                         }
                     }
-                    String wa = System.getenv("VOXY_WATER_MIN_ALPHA");
+                    String wa = me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_WATER_MIN_ALPHA");
                     if (wa != null && !wa.isBlank()) {
                         try {
                             waterMinAlpha = Float.parseFloat(wa.trim());
@@ -658,7 +661,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 }
                 // Water diagnostic: paint translucent LOD water solid magenta so
                 // a screenshot reveals exactly where water geometry rasterizes.
-                if ("1".equals(System.getenv("VOXY_LOD_WATER_DEBUG"))) {
+                if ("1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_LOD_WATER_DEBUG"))) {
                     translucentDefines.put("VOXY_LOD_WATER_DEBUG", "");
                     Logger.info("[Metal-LODTEST] VOXY_LOD_WATER_DEBUG: translucent LOD water = solid magenta + depth test OFF");
                 }
@@ -668,7 +671,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 // arm — if they turn orange here, they are water faces meshed
                 // into the OPAQUE LOD pass (Mipper rep-selection), which the
                 // whole pack-side water path can never touch.
-                if ("1".equals(System.getenv("VOXY_LOD_OPAQUE_WATER_DEBUG"))) {
+                if ("1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_LOD_OPAQUE_WATER_DEBUG"))) {
                     opaqueDefines.put("VOXY_OPAQUE_WATER_DEBUG", "");
                     Logger.info("[Metal-LODTEST] VOXY_LOD_OPAQUE_WATER_DEBUG: opaque-pass water-customId fragments = solid orange");
                 }
@@ -681,7 +684,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 // ("water bleeds through the ground"), so it stays off. Kept as a
                 // tunable knob (VOXY_WATER_DEPTH_BIAS=<f>) for future experiments.
                 {
-                    String waterBias = System.getenv("VOXY_WATER_DEPTH_BIAS");
+                    String waterBias = me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_WATER_DEPTH_BIAS");
                     if (waterBias == null || waterBias.isBlank()) waterBias = "0";
                     try {
                         Float.parseFloat(waterBias.trim());
@@ -699,7 +702,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 // define. Injected ONLY inside this non-GL guard — the old gate
                 // (bare TRANSLUCENT) leaked the flat colour into plain-GL runs
                 // because TRANSLUCENT is injected for every backend above (~:240).
-                if ("1".equals(System.getenv("VOXY_LOD_FLAT_WATER"))) {
+                if ("1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_LOD_FLAT_WATER"))) {
                     translucentDefines.put("VOXY_FLAT_WATER", "");
                     Logger.info("[Metal-LODTEST] VOXY_LOD_FLAT_WATER: translucent LOD water = flat ocean blue (interim path)");
                 }
@@ -709,8 +712,8 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 // which terrain shader variant compiled. Catches "the
                 // expected define wasn't injected" bugs that pure source
                 // grep can't.
-                boolean bakeryOff = "1".equals(System.getenv("VOXY_BAKERY_OFF"));
-                boolean debugMissing = "1".equals(System.getenv("VOXY_BAKERY_DEBUG_MISSING"));
+                boolean bakeryOff = "1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_BAKERY_OFF"));
+                boolean debugMissing = "1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_BAKERY_DEBUG_MISSING"));
                 Logger.info("[Metal-DEFINES] terrain shader injections: " +
                         (noDepthBound
                                 ? "VOXY_NO_DEPTH_BOUND (depth-bound kill switch)"
@@ -755,8 +758,18 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 // per-draw baseInstance via setVertexBytes at binding 6;
                 // quads3.vert reads it from a small UBO when this define
                 // is set, instead of gl_BaseInstance.
-                opaqueDefines.put("VOXY_METAL_BI_FIX", "");
-                translucentDefines.put("VOXY_METAL_BI_FIX", "");
+                // 2026-11: Metal does propagate baseInstance for these draws
+                // (standalone probe on M5); the push is now opt-in only.
+                if (me.cortex.voxy.client.core.metal.MetalRenderEncoder.LEGACY_BI_FIX) {
+                    opaqueDefines.put("VOXY_METAL_BI_FIX", "");
+                    translucentDefines.put("VOXY_METAL_BI_FIX", "");
+                }
+                if (CHUNKED_DRAW) {
+                    opaqueDefines.put("VOXY_CHUNKED_DRAW", "");
+                    translucentDefines.put("VOXY_CHUNKED_DRAW", "");
+                    opaqueDefines.put("VOXY_CHUNK_BINDING", Integer.toString(CHUNK_BINDING));
+                    translucentDefines.put("VOXY_CHUNK_BINDING", Integer.toString(CHUNK_BINDING));
+                }
             }
 
             // NOTE: MDIC terrain pipelines do NOT opt into supportIndirectCommandBuffers.
@@ -785,7 +798,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 // LOD geometry competing for depth; winner flips with tiny camera
                 // angle changes). If the per-angle disappearing stops, depth/z-fight
                 // is confirmed (the image may look unordered with depth off).
-                boolean lodNoDepth = "1".equals(System.getenv("VOXY_LOD_NO_DEPTH"));
+                boolean lodNoDepth = "1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_LOD_NO_DEPTH"));
                 if (lodNoDepth) {
                     Logger.info("[Metal-LODTEST] VOXY_LOD_NO_DEPTH active: opaque LOD depth test/write DISABLED");
                 }
@@ -799,7 +812,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 // translucent pass so the magenta shows ALL water geometry
                 // regardless of depth — distinguishing "water missing" (coverage
                 // / meshing) from "water depth-rejected" (z-fight vs seafloor).
-                boolean waterDebugDepth = "1".equals(System.getenv("VOXY_LOD_WATER_DEBUG"));
+                boolean waterDebugDepth = "1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_LOD_WATER_DEBUG"));
                 // Phase D (issue #11): in vx-contract mode the translucent
                 // pass renders into its OWN depth attachment (seeded with
                 // opaque depth) and must WRITE depth — the water surface
@@ -818,7 +831,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
                 // (RGB x1.294 / alpha 0.914 for water — "pale, more opaque").
                 // OPAQUE writes + depth LEQUAL+write make all 3 planes agree on
                 // nearest-fragment-wins. VOXY_VX_PLANE_BLEND=1 restores blending.
-                var transBlend = vxMaterial && !"1".equals(System.getenv("VOXY_VX_PLANE_BLEND"))
+                var transBlend = vxMaterial && !"1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_VX_PLANE_BLEND"))
                         ? me.cortex.voxy.client.core.gpu.PipelineState.BlendState.OPAQUE
                         : me.cortex.voxy.client.core.gpu.PipelineState.BlendState.PREMULTIPLIED_ALPHA;
                 translucentState = new me.cortex.voxy.client.core.gpu.PipelineState(
@@ -886,16 +899,16 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         if (MetalMvpUtil.METAL_NDC_REMAP && this.backend.getType() != BackendType.OPENGL) {
             MetalMvpUtil.applyNdcRemap(mat);
         }
-        mat.getToAddress(ptr); ptr += 4*4*4;
+        me.cortex.voxy.common.util.JomlMem.put(mat, ptr); ptr += 4*4*4;
 
-        viewport.section.getToAddress(ptr); ptr += 4*3;
+        me.cortex.voxy.common.util.JomlMem.put(viewport.section, ptr); ptr += 4*3;
 
         if (viewport.frameId<0) {
             Logger.error("Frame ID negative, this will cause things to break, wrapping around");
             viewport.frameId &= 0x7fffffff;
         }
         MemoryUtil.memPutInt(ptr, viewport.frameId&0x7fffffff); ptr += 4;
-        viewport.innerTranslation.getToAddress(ptr); ptr += 4*3;
+        me.cortex.voxy.common.util.JomlMem.put(viewport.innerTranslation, ptr); ptr += 4*3;
 
         // std140 padding: cameraSubPos (vec3 at offset 80) consumes 12B; the
         // next vec4 must be 16B-aligned, so skip the 4B trailing pad before
@@ -1221,11 +1234,81 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
 
         encoder.bindIndexBuffer(me.cortex.voxy.client.core.rendering.util.SharedIndexBuffer.INSTANCE.getBuffer(),
                 me.cortex.voxy.client.core.gpu.RenderEncoder.INDEX_TYPE_UINT16, 0);
+        if (CHUNKED_DRAW && encoder instanceof me.cortex.voxy.client.core.metal.MetalRenderEncoder mre) {
+            this.drawChunked(mre, viewport, indirectOffset, maxDrawCount);
+            return;
+        }
         encoder.drawIndexedIndirect(
                 me.cortex.voxy.client.core.gpu.RenderEncoder.PRIMITIVE_TRIANGLES,
                 viewport.drawCallBuffer, indirectOffset,
                 maxDrawCount,
                 /*stride*/ 5 * 4); // DrawElementsIndirectCommand = 5 uint32
+    }
+
+    /**
+     * Metal: collapse every draw command of a pass into ONE instanced draw over
+     * fixed-size quad chunks (quads3.vert VOXY_CHUNKED_DRAW). The CPU per-draw
+     * encode cost was the long-range bottleneck (60-80k draws/frame).
+     * VOXY_CHUNKED_DRAW=0 reverts to one draw per command.
+     */
+    static final boolean CHUNKED_DRAW = !"0".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_CHUNKED_DRAW"))
+            && !me.cortex.voxy.client.core.metal.MetalRenderEncoder.LEGACY_BI_FIX;
+    private static final int CHUNK_BINDING = 12;
+    /** Quads per chunked-draw instance. Host-side only (the shader reads the per-chunk
+     *  count), so it can be retuned live from config/voxy-tune.properties (chunkQuads=N). */
+    public static volatile int CHUNK_QUADS = envInt("VOXY_CHUNK_QUADS", 32, 4, 255);
+    private me.cortex.voxy.client.core.metal.MetalBuffer chunkBuffer;
+    private long chunkCursor;
+    private int chunkFrame = Integer.MIN_VALUE;
+    private final java.util.ArrayDeque<Object[]> retiredChunkBuffers = new java.util.ArrayDeque<>();
+
+    private static int envInt(String name, int def, int min, int max) {
+        try {
+            String v = me.cortex.voxy.client.core.util.VoxyTune.env(name);
+            return v == null ? def : Math.max(min, Math.min(max, Integer.parseInt(v.trim())));
+        } catch (NumberFormatException e) {
+            return def;
+        }
+    }
+
+    private void drawChunked(me.cortex.voxy.client.core.metal.MetalRenderEncoder encoder,
+                             MDICViewport viewport, long indirectOffset, int maxDrawCount) {
+        if (viewport.frameId != this.chunkFrame) {
+            this.chunkFrame = viewport.frameId;
+            this.chunkCursor = 0;
+            // Buffers replaced mid-frame may still be read by in-flight GPU work;
+            // the per-frame submit-wait guarantees they're idle a few frames later.
+            while (!this.retiredChunkBuffers.isEmpty()
+                    && viewport.frameId - (int) this.retiredChunkBuffers.peekFirst()[1] > 3) {
+                ((me.cortex.voxy.client.core.metal.MetalBuffer) this.retiredChunkBuffers.pollFirst()[0]).free();
+            }
+        }
+        if (this.chunkBuffer == null) {
+            this.chunkBuffer = (me.cortex.voxy.client.core.metal.MetalBuffer) this.backend.createBuffer(8L << 20, 0, false);
+        }
+        for (int attempt = 0; attempt < 2; attempt++) {
+            long cap = (this.chunkBuffer.size() - this.chunkCursor) / 8;
+            long r = encoder.drawIndexedChunked(me.cortex.voxy.client.core.gpu.RenderEncoder.PRIMITIVE_TRIANGLES,
+                    viewport.drawCallBuffer, indirectOffset, maxDrawCount, 5 * 4,
+                    this.chunkBuffer, this.chunkCursor, cap, CHUNK_QUADS, CHUNK_BINDING);
+            if (r == Long.MIN_VALUE) {
+                encoder.drawIndexedIndirect(me.cortex.voxy.client.core.gpu.RenderEncoder.PRIMITIVE_TRIANGLES,
+                        viewport.drawCallBuffer, indirectOffset, maxDrawCount, 5 * 4);
+                return;
+            }
+            if (r >= 0) {
+                me.cortex.voxy.client.core.util.FrameTiming.chunkInstances += r;
+                this.chunkCursor = (this.chunkCursor + r * 8 + 255) & ~255L;
+                return;
+            }
+            // Overflow: retire the buffer (earlier passes this frame still reference
+            // it) and retry once with a fresh one sized for the whole frame.
+            long newSize = Math.max(this.chunkBuffer.size() * 2, ((-r) * 8 + 256) * 4);
+            this.retiredChunkBuffers.add(new Object[]{this.chunkBuffer, viewport.frameId});
+            this.chunkBuffer = (me.cortex.voxy.client.core.metal.MetalBuffer) this.backend.createBuffer(newSize, 0, false);
+            this.chunkCursor = 0;
+            Logger.info("[Metal-CHUNKED] grew chunk table to " + (newSize >> 20) + " MB");
+        }
     }
 
     @Override
@@ -1270,7 +1353,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
 
     /** Fallback: re-enable the per-frame drawCallBuffer zero on Metal. */
     private static final boolean METAL_ZERO_DRAWBUF =
-            "1".equals(System.getenv("VOXY_LOD_ZERO_DRAWBUF"));
+            "1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_LOD_ZERO_DRAWBUF"));
 
     @Override
     public void buildDrawCalls(MDICViewport viewport) {
@@ -1283,7 +1366,7 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
         // gets from glMemoryBarrier. If the LOD flicker stops with this on, the
         // prepasses were racing across encoder boundaries and the real fix is
         // inter-encoder fences/barriers. Metal-only; GL unaffected.
-        boolean computeSerialize = "1".equals(System.getenv("VOXY_COMPUTE_SERIALIZE"))
+        boolean computeSerialize = "1".equals(me.cortex.voxy.client.core.util.VoxyTune.env("VOXY_COMPUTE_SERIALIZE"))
                 && this.backend.getType() != BackendType.OPENGL;
         if (computeSerialize && !COMPUTE_SERIALIZE_LOGGED) {
             COMPUTE_SERIALIZE_LOGGED = true;
@@ -1491,6 +1574,10 @@ public class MDICSectionRenderer extends AbstractSectionRenderer<MDICViewport, B
 
     @Override
     public void free() {
+        if (this.chunkBuffer != null) { this.chunkBuffer.free(); this.chunkBuffer = null; }
+        while (!this.retiredChunkBuffers.isEmpty()) {
+            ((me.cortex.voxy.client.core.metal.MetalBuffer) this.retiredChunkBuffers.pollFirst()[0]).free();
+        }
         this.uniform.free();
         this.distanceCountBuffer.free();
         if (this.translucentTerrainShader != null) this.translucentTerrainShader.free();

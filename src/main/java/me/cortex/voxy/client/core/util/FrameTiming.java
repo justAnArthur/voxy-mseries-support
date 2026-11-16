@@ -17,7 +17,7 @@ package me.cortex.voxy.client.core.util;
  * Metal-only paths.
  */
 public final class FrameTiming {
-    public static final boolean ENABLED = "1".equals(System.getenv("VOXY_FRAME_TIMING"));
+    public static final boolean ENABLED = !"0".equals(System.getenv("VOXY_FRAME_TIMING"));
 
     /** Wait #1: HOT request-queue direct-read submit (HierarchicalOcclusionTraverser). */
     public static long hotReadbackNs;
@@ -30,6 +30,17 @@ public final class FrameTiming {
     /** Draws issued through that loop (2 JNI crossings each). */
     public static long jniDrawCount;
 
+    /** Whole runPipelineMetal (CPU encode + all waits). */
+    public static long voxyTotalNs;
+    /** Wall time between successive Voxy frame starts (= full frame time). */
+    public static long wallNs;
+    public static long lastFrameStartNs;
+    /** Summed GPU execution time of all submitted command buffers. */
+    public static long gpuNs;
+    public static long submits;
+    /** Chunked-draw instances (each CHUNK_QUADS quads of vertex work). */
+    public static long chunkInstances;
+
     private FrameTiming() {}
 
     public static void reset() {
@@ -38,5 +49,10 @@ public final class FrameTiming {
         bridgeFlushNs = 0;
         jniDrawLoopNs = 0;
         jniDrawCount = 0;
+        voxyTotalNs = 0;
+        wallNs = 0;
+        gpuNs = 0;
+        submits = 0;
+        chunkInstances = 0;
     }
 }

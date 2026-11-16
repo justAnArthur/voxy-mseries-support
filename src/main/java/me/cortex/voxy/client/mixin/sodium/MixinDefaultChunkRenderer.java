@@ -123,7 +123,43 @@ public abstract class MixinDefaultChunkRenderer extends ShaderChunkRenderer {
     }
 
     @Unique
+    private final it.unimi.dsi.fastutil.longs.LongOpenHashSet voxy$drawn = new it.unimi.dsi.fastutil.longs.LongOpenHashSet();
+
+    /** Bound-mask keys of every section with geometry in this frame's Sodium render lists. */
+    @Unique
+    private it.unimi.dsi.fastutil.longs.LongOpenHashSet voxy$collectDrawn(ChunkRenderListIterable renderLists) {
+        var drawn = this.voxy$drawn;
+        drawn.clear();
+        for (var lists = renderLists.iterator(); lists.hasNext(); ) {
+            ChunkRenderList list = lists.next();
+            var sections = list.sectionsWithGeometryIterator(false);
+            if (sections == null) continue;
+            RenderRegion region = list.getRegion();
+            while (sections.hasNext()) {
+                var section = region.getSection(sections.nextByteAsInt());
+                if (section != null) {
+                    drawn.add(me.cortex.voxy.client.core.rendering.ChunkBoundRenderer.boundPos(
+                            section.getChunkX(), section.getChunkY(), section.getChunkZ()));
+                }
+            }
+        }
+        return drawn;
+    }
+
+    @Unique
     private void doRender(ChunkRenderMatrices matrices, CommandList commandList, ChunkRenderListIterable renderLists, TerrainRenderPass renderPass, CameraTransform camera, FogParameters fogParameters, boolean indexedRenderingEnabled) {
+        // Metal HiZ: MC's opaque terrain is complete at the translucent head —
+        // capture its depth coverage for next frame's LOD occlusion.
+        // Not in Iris gbuffer-inject mode: LOD depth is in MC's depth there, so the
+        // capture would count LOD as MC coverage and cull it next frame (flicker).
+        if (renderPass == DefaultTerrainRenderPasses.TRANSLUCENT && !IrisUtil.shadowsBeingRendered()
+                && !(IrisUtil.irisGbufferInjectMode() && !IrisUtil.vxContractActive())
+                && me.cortex.voxy.client.core.gpu.RenderBackendFactory.get().getType()
+                        != me.cortex.voxy.client.core.gpu.BackendType.OPENGL) {
+            var sys = ((IGetVoxyRenderSystem) Minecraft.getInstance().levelRenderer).getVoxyRenderSystem();
+            var vp = sys == null ? null : sys.getViewport();
+            if (vp != null) vp.hiZBuffer.captureMcCoverage(vp);
+        }
         voxy$cullProbe(renderPass);
         this.voxy$preflightSodiumSharedIndexBuffer(commandList, renderLists, renderPass, camera, indexedRenderingEnabled);
 
@@ -151,6 +187,9 @@ public abstract class MixinDefaultChunkRenderer extends ShaderChunkRenderer {
                     viewport = renderer.getViewport();
                 } else {
                     viewport = renderer.setupViewport(matrices, fogParameters, camera.x, camera.y, camera.z);
+                }
+                if (me.cortex.voxy.client.core.rendering.ChunkBoundRenderer.DRAWN_ONLY && !IrisUtil.shadowsBeingRendered()) {
+                    renderer.chunkBoundRenderer.syncDrawn(this.voxy$collectDrawn(renderLists), camera.x, camera.y, camera.z);
                 }
                 renderer.renderOpaque(viewport);
 
