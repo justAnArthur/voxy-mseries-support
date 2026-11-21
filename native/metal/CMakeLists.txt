@@ -1,4 +1,8 @@
 cmake_minimum_required(VERSION 3.20)
+# Must be set before project(): CMake reads it while setting up the toolchain,
+# so a later set() leaves the dylib at the SDK's macOS version (minos 26.0),
+# which refuses to load on older macOS.
+set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "macOS deployment target")
 project(voxy_metal LANGUAGES CXX OBJCXX)
 
 if(NOT APPLE)
@@ -7,7 +11,6 @@ endif()
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_OSX_DEPLOYMENT_TARGET "12.0" CACHE STRING "macOS deployment target")
 
 # Require ARM64; Metal backend is MVP-targeted at Apple Silicon only.
 if(NOT CMAKE_OSX_ARCHITECTURES)
